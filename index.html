@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Kisah Sukses — Ultra Feature Pack</title>
+  <meta name="description" content="Kisah Sukses — Mentor AI bilingual dengan fitur sosial, quotes, game." />
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0b67ff">
+  <link rel="icon" href="/favicon-32.png">
+  <link href="style.css" rel="stylesheet">
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div class="brand">
+        <img src="/logo.png" alt="logo" class="logo"/>
+        <div>
+          <h1>Kisah Sukses — AI Mentor</h1>
+          <p class="muted">Inspirasi harian, sekarang dengan share & game</p>
+        </div>
+      </div>
+      <div class="status">
+        <div>AI aktif: <span id="aiIndicator">Detecting...</span></div>
+        <div>Model: <span id="modelName">--</span></div>
+      </div>
+    </header>
+
+    <section class="content">
+      <section class="left">
+        <div class="card chat-card">
+          <div class="messages" id="messages" aria-live="polite"></div>
+
+          <form id="chatForm" class="chat-form" onsubmit="return false;">
+            <input id="prompt" placeholder="Tanyakan sesuatu..." />
+            <button id="sendBtn">Kirim</button>
+          </form>
+        </div>
+
+        <div class="card quotes-card" id="quotesCard">
+          <h3>Quote Inspiratif</h3>
+          <div id="quoteText">--</div>
+          <div style="margin-top:8px;">
+            <button id="newQuoteBtn">Ambil Quote Baru</button>
+            <button id="tweetQuote">Share</button>
+          </div>
+        </div>
+
+        <div class="card game-card">
+          <h3>Mini Game — Koleksi Angka</h3>
+          <div>Waktu: <span id="timeLeft">15</span>s | Skor: <span id="score">0</span></div>
+          <button id="collectBtn">KLIK!</button>
+          <div id="gameMsg"></div>
+        </div>
+      </section>
+
+      <aside class="right">
+        <div class="card social-card">
+          <h3>Bagikan</h3>
+          <input id="shareText" placeholder="Tulis pesan..." />
+          <input id="shareUrl" placeholder="Link (opsional)" />
+          <div class="row">
+            <button onclick="shareTo('facebook')">Facebook</button>
+            <button onclick="shareTo('twitter')">Twitter</button>
+            <button onclick="shareTo('instagram')">Instagram</button>
+            <button onclick="shareTo('tiktok')">TikTok</button>
+          </div>
+          <p id="shareResult"></p>
+        </div>
+
+        <div class="card settings-card">
+          <h3>Pengaturan</h3>
+          <label for="modelSelect">Pilih model (env override tetap berlaku):</label>
+          <select id="modelSelect">
+            <option value="">(Default)</option>
+            <option value="llama3-70b-8192">Groq: llama3-70b-8192</option>
+            <option value="llama3-8b-8192">Groq: llama3-8b-8192</option>
+            <option value="gpt-4o-mini">OpenAI: gpt-4o-mini</option>
+          </select>
+          <div style="margin-top:8px;">
+            <button id="applyModel">Terapkan (client-side)</button>
+            <button id="testAI">Tes AI</button>
+          </div>
+          <div id="testResult" style="margin-top:8px;"></div>
+        </div>
+      </aside>
+    </section>
+
+    <footer class="footer">
+      <small>Deploy dengan Groq API — pastikan GROQ_API_KEY di env. Versi Ultra Feature Pack v1</small>
+    </footer>
+  </main>
+
+  <script src="/ai.js"></script>
+  <script>
+    // UI glue
+    document.getElementById('modelName').textContent = (localStorage.getItem('MODEL') || 'auto (env)').toString();
+    const aiIndicator = document.getElementById('aiIndicator');
+    function setAIIndicator(text){ aiIndicator.textContent = text; }
+
+    // Chat
+    const messages = document.getElementById('messages');
+    function appendMsg(txt, cls='ai'){
+      const el = document.createElement('div');
+      el.className = 'msg ' + (cls==='user' ? 'user' : 'ai');
+      el.textContent = txt;
+      messages.appendChild(el);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    document.getElementById('sendBtn').addEventListener('click', async ()=>{
+      const input = document.getElementById('prompt');
+      const prompt = input.value.trim();
+      if(!prompt) return;
+      appendMsg(prompt,'user');
+      appendMsg('Menjawab...', 'ai');
+      input.value = '';
+      try{
+        const model = localStorage.getItem('MODEL') || '';
+        const res = await fetch('/api/ai', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: prompt, model }) });
+        const data = await res.json();
+        // replace last ai msg
+        const aiBubbles = messages.querySelectorAll('.msg.ai');
+        if(aiBubbles.length) aiBubbles[aiBubbles.length-1].textContent = data.reply || 'Tidak ada jawaban';
+      }catch(e){
+        const aiBubbles = messages.querySelectorAll('.msg.ai');
+        if(aiBubbles.length) aiBubbles[aiBubbles.length-1].textContent = 'Error connecting to AI';
+      }
+    });
+
+    // Quotes
+    async function loadQuote(){
+      try{
+        const res = await fetch('/api/quote');
+        const d = await res.json();
+        document.getElementById('quoteText').textContent = d.quote;
+      }catch(e){
+        document.getElementById('quoteText').textContent = 'Tidak dapat mengambil quote';
+      }
+    }
+    document.getElementById('newQuoteBtn').addEventListener('click', loadQuote);
+    document.getElementById('tweetQuote').addEventListener('click', ()=>{
+      const text = document.getElementById('quoteText').textContent;
+      window.open('https://twitter.com/intent/tweet?text='+encodeURIComponent(text),'_blank');
+    });
+    loadQuote();
+
+    // Social share
+    async function shareTo(platform){
+      const text = document.getElementById('shareText').value;
+      const url = document.getElementById('shareUrl').value;
+      const res = await fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body: JSON.stringify({platform,text,url})});
+      const d = await res.json();
+      document.getElementById('shareResult').textContent = d.shareUrl || 'No share url';
+      if(d.shareUrl) window.open(d.shareUrl,'_blank');
+    }
+
+    // Game
+    (function(){
+      const btn = document.getElementById('collectBtn');
+      const scoreEl = document.getElementById('score');
+      const timeEl = document.getElementById('timeLeft');
+      const msg = document.getElementById('gameMsg');
+      let score=0, timeLeft=15, running=false, timerId=null;
+      function endGame(){ running=false; btn.disabled=true; clearInterval(timerId); msg.textContent='Selesai! Skor: '+score; }
+      btn.addEventListener('click', ()=>{
+        if(!running){
+          running=true; score=0; timeLeft=15; btn.disabled=false; scoreEl.textContent=0; timeEl.textContent=15; msg.textContent='';
+          timerId = setInterval(()=>{ timeLeft--; timeEl.textContent=timeLeft; if(timeLeft<=0) endGame(); },1000);
+        }
+        if(running){ score++; scoreEl.textContent = score; }
+      });
+    })();
+
+    // Settings: model select
+    document.getElementById('applyModel').addEventListener('click', ()=>{
+      const sel = document.getElementById('modelSelect').value;
+      if(sel) localStorage.setItem('MODEL', sel); else localStorage.removeItem('MODEL');
+      document.getElementById('modelName').textContent = (sel || 'auto (env)');
+      alert('Model disimpan di browser. Server akan tetap gunakan env var jika ada.');
+    });
+
+    // Test AI
+    document.getElementById('testAI').addEventListener('click', async ()=>{
+      setAIIndicator('Testing...');
+      try{
+        const res = await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body: JSON.stringify({ prompt: 'Tes koneksi AI, tolong jawab singkat: Halo' })});
+        const d = await res.json();
+        document.getElementById('testResult').textContent = d.reply || 'No reply';
+        setAIIndicator('OK');
+      }catch(e){
+        document.getElementById('testResult').textContent = 'Error: '+e.message;
+        setAIIndicator('Error');
+      }
+    });
+
+    // On load, detect AI env (ping /api/ai with a lightweight test)
+    (async function(){
+      try{
+        const res = await fetch('/api/ai', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: 'Ping' })});
+        const d = await res.json();
+        setAIIndicator('Connected');
+      }catch(e){
+        setAIIndicator('Not connected');
+      }
+    })();
+  </script>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js').then(()=>console.log('SW registered'));
+    }
+  </script>
+</body>
+</html>
