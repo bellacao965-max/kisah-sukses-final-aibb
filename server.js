@@ -7,19 +7,23 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || "";
-const MODEL = process.env.MODEL || "gpt-4o-mini";
+// ===============================
+//  FIX: GUNAKAN GROQ SEBAGAI DEFAULT
+// ===============================
+const GROQ_KEY = process.env.GROQ_API_KEY || "";
+const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
+const MODEL = process.env.MODEL || "gemma2-9b-it";   // <— FIX untuk GROQ
 
-if (!OPENAI_KEY) {
-  console.warn("Warning: OPENAI_API_KEY (or GROQ_API_KEY) is not set. AI endpoint will return a placeholder response.");
+if (!GROQ_KEY && !OPENAI_KEY) {
+  console.warn("⚠️ Warning: No GROQ_API_KEY or OPENAI_API_KEY configured!");
 }
 
-async function callOpenAI(prompt, model){
-  if (!OPENAI_KEY) {
-    return "AI key not configured. Set OPENAI_API_KEY or GROQ_API_KEY to get real responses.";
-  }
-  // Prefer OpenAI if OPENAI_API_KEY present
-  if (process.env.OPENAI_API_KEY) {
+// ===============================
+//  FIX: FUNSI AI UNTUK GROQ
+// ===============================
+async function callAI(prompt, model) {
+  // Jika user punya OPENAI, tetap bisa dipakai
+  if (OPENAI_KEY) {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -32,48 +36,53 @@ async function callOpenAI(prompt, model){
         max_tokens: 500
       })
     });
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`OpenAI error: ${res.status} ${txt}`);
-    }
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content ?? "No reply";
-  } else {
-    // Simple GROQ fallback using fetch to a hypothetical endpoint (user's Groq SDK may differ)
-    // For now assume GROQ_API behaves like OpenAI-compatible. If not, user should replace with Groq SDK calls.
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${OPENAI_KEY}`
-      },
-      body: JSON.stringify({
-        model: model || MODEL,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 500
-      })
-    });
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`AI error: ${res.status} ${txt}`);
-    }
     const data = await res.json();
     return data.choices?.[0]?.message?.content ?? "No reply";
   }
+
+  // === FIX GROQ ===
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${GROQ_KEY}`
+    },
+    body: JSON.stringify({
+      model: model || MODEL,
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 500
+    })
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`GROQ error: ${res.status} - ${txt}`);
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content ?? "No reply";
 }
 
+// ===============================
+//  AI ENDPOINT
+// ===============================
 app.post("/api/ai", async (req, res) => {
   try {
     const { prompt, model } = req.body;
     if (!prompt) return res.status(400).json({ error: "Missing prompt" });
-    const reply = await callOpenAI(prompt, model);
+
+    const reply = await callAI(prompt, model);
     res.json({ reply });
+
   } catch (err) {
     res.status(500).json({ error: "AI Error", detail: err.message });
   }
 });
 
-// Simple quotes endpoint
+
+// ===============================
+//  QUOTES (TIDAK DIUBAH)
+// ===============================
 const QUOTES = [
   "Jangan menyerah — langkah kecil hari ini adalah kemenangan besar esok.",
   "Kesuksesan datang kepada mereka yang tak takut mencoba lagi.",
@@ -87,13 +96,18 @@ app.get("/api/quote", (req, res) => {
   res.json({ quote: q });
 });
 
-// Social/share helper (returns share URLs)
+
+// ===============================
+//  SOCIAL SHARE (TIDAK DIUBAH)
+// ===============================
 app.post("/api/social", (req, res) => {
   const { platform, text, url } = req.body;
   if (!platform) return res.status(400).json({ error: "Missing platform" });
+
   const encodedText = encodeURIComponent(text || "");
   const encodedUrl = encodeURIComponent(url || "");
   let shareUrl = "";
+
   switch ((platform+"").toLowerCase()) {
     case "facebook":
     case "fb":
@@ -104,7 +118,6 @@ app.post("/api/social", (req, res) => {
       break;
     case "instagram":
     case "ig":
-      // Instagram web doesn't support direct posts; open Instagram home
       shareUrl = `https://www.instagram.com/`;
       break;
     case "tiktok":
@@ -116,6 +129,9 @@ app.post("/api/social", (req, res) => {
   res.json({ shareUrl });
 });
 
+// ===============================
+//  STATIC FILES
+// ===============================
 app.use(express.static("./"));
 
 const PORT = process.env.PORT || 3000;
